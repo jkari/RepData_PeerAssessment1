@@ -1,25 +1,154 @@
 ---
-title: "Reproducible Research: Peer Assessment 1"
-output: 
-  html_document:
-    keep_md: true
+title: "Report"
+author: "Jussi Kari"
+date: "5/21/2021"
+output: html_document
 ---
 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
 
-## Loading and preprocessing the data
+## Loading the data
 
+First the activity data is loaded. Data contains the date and daily steps in 5 minute slots.
 
+```{r load,message=F}
+library(dplyr)
+library(ggplot2)
+library(hms)
 
-## What is mean total number of steps taken per day?
+data <- read.csv('activity.csv')
+```
 
+# Daily steps
 
+Then the total daily steps is calculated by day.
 
-## What is the average daily activity pattern?
+```{r daily_steps,message=F}
+steps <- data %>%
+  filter(!is.na(steps)) %>%
+  group_by(date) %>%
+  summarise(steps=sum(steps, na.rm=T))
+```
 
+A histogram of the summary data.
 
+```{r histogram,message=F}
+ggplot(steps, aes(x=steps)) +
+  geom_histogram(binwidth=2000)
+```
 
-## Imputing missing values
+The mean steps by day.
 
+```{r mean_steps}
+mean(steps$steps)
+```
 
+And the corresponding median of the daily steps.
 
-## Are there differences in activity patterns between weekdays and weekends?
+```{r median_steps}
+median(steps$steps)
+```
+
+# Daily activity pattern
+
+Next we calculate the average steps for each time slot.
+
+```{r daily_pattern,message=F}
+steps_by_interval <- data %>%
+  group_by(interval) %>%
+  summarise(steps=mean(steps, na.rm=T))
+```
+
+And we plot the avverage steps taken by time.
+
+```{r steps_plot}
+ggplot(steps_by_interval %>% mutate(interval=hms(hours=as.integer(interval / 100), minutes=interval %% 100)),
+       aes(x=interval, y=steps)) +
+  geom_line() +
+  scale_x_time(breaks=sapply(c(0,6, 12, 18, 24), function (hour) { hms(hour=hour) }))
+```
+
+The 5 minute interval with maximum steps can be obtained.
+
+```{r max_steps}
+steps_by_interval[which.max(steps_by_interval$steps),]
+```
+
+The results identifies 08:35 as the most active 5 minute interval on average with about 206 steps taken.
+
+# Imputing missing values
+
+There are some missing values in the dataset. The total amount of rows with missing step count can be obtained.
+
+```{r missing_steps,message=F}
+data %>%
+  filter(is.na(steps)) %>%
+  summarise(count=n())
+```
+
+We will next fill in the missing values with daily averages from corresponding interval for the missing step counts.
+
+```{r}
+imputed <- data
+
+for (i in 1:nrow(imputed)) {
+  if (is.na(imputed[i,'steps'])) {
+    imputed[i,'steps'] <- first(steps_by_interval[steps_by_interval$interval==imputed[i,'interval'],]$steps)
+  }
+}
+```
+
+Then we revise the daily steps with imputed data.
+
+```{r daily_steps_imputed,message=F}
+steps_imputed <- imputed %>%
+  filter(!is.na(steps)) %>%
+  group_by(date) %>%
+  summarise(steps=sum(steps, na.rm=T))
+```
+
+And draw a corresponding histogram.
+
+```{r histogram_imputed,message=F}
+ggplot(steps_imputed, aes(x=steps)) +
+  geom_histogram(binwidth=2000)
+```
+
+And have a look at the average and median values.
+
+The mean steps by day.
+
+```{r mean_steps_imputed}
+mean(steps_imputed$steps)
+```
+
+And the corresponding median of the daily steps.
+
+```{r median_steps_imputed}
+median(steps_imputed$steps)
+```
+
+As we can see, the missing data doesn't have a big meaning. The average stays exactly same and median changes only a little.
+
+## Weekly patterns
+
+Next we map dates to either weekdays or weekend days to spot differencies in behavior.
+
+```{r weekdays,message=F}
+day_data <- imputed %>%
+  mutate(day=weekdays(as.Date(date))) %>%
+  mutate(wd=recode_factor(day, 'Monday'='Weekday','Tuesday'='Weekday','Wednesday'='Weekday','Thursday'='Weekday',
+                          'Friday'='Weekday','Saturday'='Weekend','Sunday'='Weekend')) %>%
+  group_by(wd, interval) %>%
+  summarise(steps=mean(steps))
+```
+
+The we plot the amounts by day type.
+
+```{r weekdays_plot}
+ggplot(day_data, aes(x=interval, y=steps)) +
+  geom_line() +
+  facet_grid(wd ~ .)
+```
